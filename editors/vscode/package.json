@@ -1,10 +1,10 @@
 {
-	"name": "roblox-ui",
+	"name": "kebolder-roblox-ui",
 	"displayName": "Roblox UI",
 	"description": "A frontend for Roblox projects",
 	"version": "0.3.3",
 	"license": "MIT",
-	"publisher": "filiptibell",
+	"publisher": "kebolder",
 	"author": {
 		"name": "Filip Tibell",
 		"email": "filip.tibell@gmail.com",
@@ -152,13 +152,13 @@
 				"command": "roblox-ui.explorer.instancePaste",
 				"title": "Paste",
 				"icon": "$(file)",
-				"enablement": "view == roblox-ui.explorer && viewItem =~ /canPasteSibling/"
+				"enablement": "view == roblox-ui.explorer && roblox-ui.explorer.hasClipboard && viewItem =~ /canPasteSibling/"
 			},
 			{
 				"command": "roblox-ui.explorer.instancePasteInto",
 				"title": "Paste Into",
 				"icon": "$(file)",
-				"enablement": "view == roblox-ui.explorer && viewItem =~ /canPasteInto/"
+				"enablement": "view == roblox-ui.explorer && roblox-ui.explorer.hasClipboard && viewItem =~ /canPasteInto/"
 			},
 			{
 				"command": "roblox-ui.explorer.renameObject",
@@ -279,10 +279,12 @@
 				},
 				{
 					"command": "roblox-ui.explorer.instancePaste",
+					"when": "roblox-ui.explorer.hasClipboard",
 					"group": "navigation_3@3"
 				},
 				{
 					"command": "roblox-ui.explorer.instancePasteInto",
+					"when": "roblox-ui.explorer.hasClipboard",
 					"group": "navigation_3@4"
 				},
 				{
@@ -339,7 +341,6 @@
 		"lint": "eslint src --ext ts"
 	},
 	"devDependencies": {
-		"@types/glob": "^8.1.0",
 		"@types/mocha": "^10.0.1",
 		"@types/node": "^20.0.0",
 		"@types/vscode": "^1.81.0",
