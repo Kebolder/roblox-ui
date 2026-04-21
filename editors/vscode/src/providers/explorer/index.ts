@@ -232,14 +232,14 @@ export class ExplorerTreeProvider implements vscode.TreeDataProvider<ExplorerIte
 		const disconnect = server.onRequest("dom/notification", (notif) => {
 			if (notif !== null) {
 				if (notif.kind === "Added") {
-					if (notif.data.parentId) {
-						this.refreshItemById(workspacePath, notif.data.parentId)
-					}
+					// Structural changes (especially leaf -> branch transitions)
+					// can leave cached tree items stale, so force full refresh.
+					this._onDidChangeTreeData.fire(null)
 				} else if (notif.kind === "Removed") {
 					this.deleteItemById(workspacePath, notif.data.childId)
-					if (notif.data.parentId) {
-						this.refreshItemById(workspacePath, notif.data.parentId)
-					}
+					// Structural changes (especially branch -> leaf transitions)
+					// can leave cached tree items stale, so force full refresh.
+					this._onDidChangeTreeData.fire(null)
 				} else if (notif.kind === "Changed") {
 					this.refreshItemById(workspacePath, notif.data.id)
 				}
