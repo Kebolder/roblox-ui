@@ -76,6 +76,9 @@ export type InstanceDeleteResponse = boolean
 export type InstanceMoveRequest = { id: string; parentId: string }
 export type InstanceMoveResponse = boolean
 
+export type InstanceCopyRequest = { id: string; parentId: string }
+export type InstanceCopyResponse = Option<DomInstance>
+
 // Notifications
 
 type DomNotificationAdded = {
@@ -146,5 +149,9 @@ export type MethodTypes = {
 	"instance/move": {
 		request: InstanceMoveRequest
 		response: InstanceMoveResponse
+	}
+	"instance/copy": {
+		request: InstanceCopyRequest
+		response: InstanceCopyResponse
 	}
 }

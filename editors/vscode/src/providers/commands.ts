@@ -5,6 +5,7 @@ import { ExplorerItem } from "./explorer"
 import { Providers } from "."
 
 const EXTENSION_NAME = "roblox-ui"
+const CONTEXT_HAS_CLIPBOARD = "roblox-ui.explorer.hasClipboard"
 
 type ExplorerClipboard = {
 	workspacePath: string
@@ -21,6 +22,7 @@ export class CommandsProvider implements vscode.Disposable {
 	constructor(public readonly providers: Providers) {
 		this.register("explorer.refresh", reconnectAllWorkspaces)
 		this.register("explorer.quickOpen", () => providers.quickOpen.show())
+		void this.updateClipboardContext()
 
 		this.register("explorer.select", async (workspacePath: string, domId: string) => {
 			const item = providers.explorerTree.findById(workspacePath, domId)
@@ -82,22 +84,22 @@ export class CommandsProvider implements vscode.Disposable {
 			if (!item) {
 				return
 			}
-			this.explorerClipboard = {
+			this.setExplorerClipboard({
 				workspacePath: item.workspacePath,
 				domId: item.domInstance.id,
 				mode: "cut",
-			}
+			})
 			vscode.window.setStatusBarMessage(`Cut "${item.domInstance.name}"`, 1500)
 		})
 		this.register("explorer.instanceCopy", (item?: ExplorerItem) => {
 			if (!item) {
 				return
 			}
-			this.explorerClipboard = {
+			this.setExplorerClipboard({
 				workspacePath: item.workspacePath,
 				domId: item.domInstance.id,
 				mode: "copy",
-			}
+			})
 			vscode.window.setStatusBarMessage(`Copied "${item.domInstance.name}"`, 1500)
 		})
 		this.register("explorer.instancePaste", async (item?: ExplorerItem) => {
@@ -120,6 +122,7 @@ export class CommandsProvider implements vscode.Disposable {
 			disposable.dispose()
 		}
 		this.commands.clear()
+		void vscode.commands.executeCommand("setContext", CONTEXT_HAS_CLIPBOARD, false)
 	}
 
 	// biome-ignore lint/suspicious/noExplicitAny:
@@ -133,6 +136,19 @@ export class CommandsProvider implements vscode.Disposable {
 	public async run(name: string, ...args: any) {
 		const fullName = `${EXTENSION_NAME}.${name}`
 		await vscode.commands.executeCommand(fullName, ...args)
+	}
+
+	private setExplorerClipboard(clipboard: ExplorerClipboard | null) {
+		this.explorerClipboard = clipboard
+		void this.updateClipboardContext()
+	}
+
+	private async updateClipboardContext() {
+		await vscode.commands.executeCommand(
+			"setContext",
+			CONTEXT_HAS_CLIPBOARD,
+			this.explorerClipboard !== null
+		)
 	}
 
 	private async pasteClipboard(target?: ExplorerItem, into?: boolean) {
@@ -169,6 +185,12 @@ export class CommandsProvider implements vscode.Disposable {
 			return
 		}
 
+		const sourceItemBeforeMove = this.providers.explorerTree.findById(
+			clipboard.workspacePath,
+			clipboard.domId
+		)
+		const oldParentId = sourceItemBeforeMove?.parent?.domInstance.id
+
 		const moved = await this.providers.explorerTree.moveInstance(
 			clipboard.workspacePath,
 			clipboard.domId,
@@ -180,6 +202,8 @@ export class CommandsProvider implements vscode.Disposable {
 			return
 		}
 
-		this.explorerClipboard = null
+		this.providers.explorerTree.refreshById(clipboard.workspacePath, oldParentId ?? null)
+		this.providers.explorerTree.refreshById(clipboard.workspacePath, newParentId)
+		this.setExplorerClipboard(null)
 	}
 }

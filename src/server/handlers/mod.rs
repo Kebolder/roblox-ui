@@ -53,6 +53,10 @@ pub async fn handle_rpc_message(msg: RpcMessage, dom: &mut Dom) -> Result<()> {
                 let req = msg.get_data::<instance::MoveRequest>();
                 req.with_context(ctx)?.respond_to(msg, dom).await?
             }
+            "instance/copy" => {
+                let req = msg.get_data::<instance::CopyRequest>();
+                req.with_context(ctx)?.respond_to(msg, dom).await?
+            }
             _ => bail!("unknown request method '{method}'"),
         };
 

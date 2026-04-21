@@ -73,3 +73,24 @@ impl MoveRequest {
             .context("failed to serialize response")
     }
 }
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct CopyRequest {
+    id: Ref,
+    parent_id: Ref,
+}
+
+impl CopyRequest {
+    pub async fn respond_to(self, msg: RpcMessage, dom: &mut Dom) -> Result<RpcMessage> {
+        let copied_instance = dom.copy_instance(self.id, self.parent_id).await;
+        msg.respond()
+            .with_data(
+                copied_instance
+                    .and_then(|id| dom.get_instance(id))
+                    .map(ResponseInstance::from_dom_instance)
+                    .map(|inst| inst.with_dom_metadata(dom)),
+            )
+            .context("failed to serialize response")
+    }
+}

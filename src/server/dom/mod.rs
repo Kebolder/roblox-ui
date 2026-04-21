@@ -117,15 +117,14 @@ impl Dom {
 
     fn remove_instance_from_dom(&mut self, id: Ref) {
         self.ids.remove(&id);
-        self.metas.remove(&id);
-        if let Some(inst) = self.inner.get_by_ref(id) {
-            if let Some(meta) = self.metas.get(&id) {
-                if let Some(paths) = &meta.paths {
-                    for path in paths {
-                        self.path_map.remove(path);
-                    }
+        if let Some(meta) = self.metas.remove(&id) {
+            if let Some(paths) = meta.paths.as_ref() {
+                for path in paths {
+                    self.path_map.remove(path);
                 }
             }
+        }
+        if let Some(inst) = self.inner.get_by_ref(id) {
             for child_id in inst.children().to_vec() {
                 self.remove_instance_from_dom(child_id);
             }
@@ -175,12 +174,29 @@ impl Dom {
 
     fn apply_metadata(&mut self, id: Ref, file_paths: &[PathBuf]) -> bool {
         if id != self.inner.root_ref() {
+            let old_meta = self.metas.get(&id).cloned();
             let new_meta = InstanceMetadata::new(id, self, file_paths);
-            if self.get_metadata(id) != new_meta.as_ref() {
+            if old_meta.as_ref() != new_meta.as_ref() {
+                if let Some(meta) = old_meta.as_ref() {
+                    if let Some(paths) = meta.paths.as_ref() {
+                        for path in paths {
+                            self.path_map.remove(path);
+                        }
+                    }
+                }
                 match new_meta {
-                    Some(meta) => self.metas.insert(id, meta),
-                    None => self.metas.remove(&id),
-                };
+                    Some(meta) => {
+                        if let Some(paths) = meta.paths.as_ref() {
+                            for path in paths {
+                                self.path_map.insert(path.to_path_buf(), id);
+                            }
+                        }
+                        self.metas.insert(id, meta);
+                    }
+                    None => {
+                        self.metas.remove(&id);
+                    }
+                }
                 true
             } else {
                 false
@@ -548,11 +564,234 @@ impl Dom {
             child_id: id,
         });
 
-        false
+        true
     }
 
-    pub async fn move_instance(&mut self, _id: Ref, _new_parent_id: Ref) -> bool {
-        // TODO: Implement this
-        false
+    pub async fn move_instance(&mut self, id: Ref, new_parent_id: Ref) -> bool {
+        let (old_parent_id, current_name) = match self.get_instance(id) {
+            Some(inst) => (inst.parent(), inst.name.clone()),
+            None => return false,
+        };
+        if self.get_instance(new_parent_id).is_none() {
+            return false;
+        }
+        if old_parent_id == new_parent_id {
+            return true;
+        }
+
+        // Prevent moving an instance into one of its descendants.
+        let mut parent_cursor = Some(new_parent_id);
+        while let Some(parent_id) = parent_cursor {
+            if parent_id == id {
+                return false;
+            }
+            parent_cursor = self.get_instance(parent_id).map(|inst| inst.parent());
+        }
+
+        let instance_paths = match self
+            .get_metadata(id)
+            .and_then(|meta| meta.paths.as_ref())
+            .cloned()
+        {
+            Some(paths) => paths,
+            None => return false,
+        };
+        let parent_paths = match self
+            .get_metadata(new_parent_id)
+            .and_then(|meta| meta.paths.as_ref())
+            .cloned()
+        {
+            Some(paths) => paths,
+            None => return false,
+        };
+
+        let moved = match fs::move_instance(&instance_paths, &parent_paths, &current_name).await {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::error!("{e}");
+                return false;
+            }
+        };
+
+        self.inner.transfer_within(id, new_parent_id);
+        self.remap_subtree_metadata(id, &moved.path_rewrites, &moved.new_instance_paths);
+
+        if let Some(changed_paths) = moved.changed_new_parent_paths.as_ref() {
+            let changed = self.apply_metadata(new_parent_id, changed_paths);
+            if changed {
+                self.notify(DomNotification::Changed {
+                    id: new_parent_id,
+                    class_name: None,
+                    name: None,
+                });
+            }
+        }
+
+        if moved.resolved_name != current_name {
+            if let Some(inst) = self.inner.get_by_ref_mut(id) {
+                inst.name = moved.resolved_name.clone();
+            }
+            self.notify(DomNotification::Changed {
+                id,
+                class_name: None,
+                name: Some(moved.resolved_name),
+            });
+        }
+
+        self.notify(DomNotification::Removed {
+            parent_id: Some(old_parent_id),
+            child_id: id,
+        });
+        self.notify(DomNotification::Added {
+            parent_id: Some(new_parent_id),
+            child_id: id,
+        });
+
+        true
+    }
+
+    fn remap_path_with_rewrites(path: &Path, rewrites: &[fs::PathRewrite]) -> PathBuf {
+        for rewrite in rewrites {
+            if path == rewrite.old_path {
+                return rewrite.new_path.clone();
+            }
+            if path.starts_with(&rewrite.old_path) {
+                if let Ok(suffix) = path.strip_prefix(&rewrite.old_path) {
+                    return rewrite.new_path.join(suffix);
+                }
+            }
+        }
+        path.to_path_buf()
+    }
+
+    fn remap_paths_from_metadata_paths(
+        paths: &InstanceMetadataPaths,
+        rewrites: &[fs::PathRewrite],
+    ) -> Vec<PathBuf> {
+        let mut mapped = Vec::new();
+        if let Some(path) = paths.folder.as_deref() {
+            mapped.push(Self::remap_path_with_rewrites(path, rewrites));
+        }
+        if let Some(path) = paths.file.as_deref() {
+            mapped.push(Self::remap_path_with_rewrites(path, rewrites));
+        }
+        if let Some(path) = paths.file_meta.as_deref() {
+            mapped.push(Self::remap_path_with_rewrites(path, rewrites));
+        }
+        mapped
+    }
+
+    fn remap_subtree_metadata(
+        &mut self,
+        id: Ref,
+        rewrites: &[fs::PathRewrite],
+        root_paths: &[PathBuf],
+    ) {
+        let children = match self.get_instance(id) {
+            Some(inst) => inst.children().to_vec(),
+            None => return,
+        };
+
+        let mapped_paths = if !root_paths.is_empty() {
+            root_paths.to_vec()
+        } else {
+            self.get_metadata(id)
+                .and_then(|meta| meta.paths.as_ref())
+                .map(|paths| Self::remap_paths_from_metadata_paths(paths, rewrites))
+                .unwrap_or_default()
+        };
+        if !mapped_paths.is_empty() {
+            self.apply_metadata(id, &mapped_paths);
+        }
+
+        for child in children {
+            self.remap_subtree_metadata(child, rewrites, &[]);
+        }
+    }
+
+    fn build_copied_node(
+        &self,
+        id: Ref,
+        rewrites: &[fs::PathRewrite],
+        root_name_override: Option<&str>,
+    ) -> Option<InstanceNode> {
+        let inst = self.get_instance(id)?;
+
+        let file_paths = self
+            .get_metadata(id)
+            .and_then(|meta| meta.paths.as_ref())
+            .map(|paths| Self::remap_paths_from_metadata_paths(paths, rewrites))
+            .unwrap_or_default();
+
+        let mut children = Vec::new();
+        for child_id in inst.children() {
+            if let Some(node) = self.build_copied_node(*child_id, rewrites, None) {
+                children.push(node);
+            }
+        }
+
+        Some(InstanceNode {
+            class_name: inst.class.clone(),
+            name: root_name_override.unwrap_or(inst.name.as_str()).to_owned(),
+            file_paths,
+            children,
+        })
+    }
+
+    pub async fn copy_instance(&mut self, id: Ref, new_parent_id: Ref) -> Option<Ref> {
+        let current_name = self.get_instance(id)?.name.clone();
+        let _ = self.get_instance(new_parent_id)?;
+
+        // Prevent copying into one of its descendants.
+        let mut parent_cursor = Some(new_parent_id);
+        while let Some(parent_id) = parent_cursor {
+            if parent_id == id {
+                return None;
+            }
+            parent_cursor = self.get_instance(parent_id).map(|inst| inst.parent());
+        }
+
+        let instance_paths = self
+            .get_metadata(id)
+            .and_then(|meta| meta.paths.as_ref())
+            .cloned()?;
+        let parent_paths = self
+            .get_metadata(new_parent_id)
+            .and_then(|meta| meta.paths.as_ref())
+            .cloned()?;
+
+        let copied = match fs::copy_instance(&instance_paths, &parent_paths, &current_name).await {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::error!("{e}");
+                return None;
+            }
+        };
+
+        let mut root_node =
+            self.build_copied_node(id, &copied.path_rewrites, Some(&copied.resolved_name))?;
+        if !copied.new_instance_paths.is_empty() {
+            root_node.file_paths = copied.new_instance_paths.clone();
+        }
+
+        let child_id = self.insert_instance_into_dom(new_parent_id, root_node);
+
+        if let Some(changed_paths) = copied.changed_new_parent_paths.as_ref() {
+            let changed = self.apply_metadata(new_parent_id, changed_paths);
+            if changed {
+                self.notify(DomNotification::Changed {
+                    id: new_parent_id,
+                    class_name: None,
+                    name: None,
+                });
+            }
+        }
+
+        self.notify(DomNotification::Added {
+            parent_id: Some(new_parent_id),
+            child_id,
+        });
+
+        Some(child_id)
     }
 }

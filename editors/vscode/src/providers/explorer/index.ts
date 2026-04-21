@@ -145,18 +145,32 @@ export class ExplorerTreeProvider implements vscode.TreeDataProvider<ExplorerIte
 	private refreshItemById(workspacePath: string, id: string) {
 		const idMap = this.explorerIdMaps.get(workspacePath)
 		if (idMap) {
-			// To properly refresh we actually need to refresh the **parent** and not
-			// this particular tree item, this is because completely new tree items
-			// need to be created with new collapsible states etc, and vscode can
-			// only properly handle that by calling the getChildren method ...
+			// Fire the exact item id passed in:
+			// - For add/remove notifications we pass parent id, so this refreshes children.
+			// - For changed notifications we pass instance id, so this refreshes that row.
 			const item = idMap.get(id)
 			if (item) {
-				if (item.parent) {
-					this._onDidChangeTreeData.fire(item.parent)
-				} else {
-					this._onDidChangeTreeData.fire(null)
-				}
+				this._onDidChangeTreeData.fire(item)
+			} else {
+				this._onDidChangeTreeData.fire(null)
 			}
+		}
+	}
+
+	public refreshById(workspacePath: string, id?: string | null) {
+		if (!id) {
+			this._onDidChangeTreeData.fire(null)
+			return
+		}
+
+		const idMap = this.explorerIdMaps.get(workspacePath)
+		const item = idMap?.get(id)
+		if (item) {
+			this._onDidChangeTreeData.fire(item)
+		} else {
+			// If the node is currently not in map (for example hidden DataModel roots),
+			// fall back to a full refresh so move/copy operations still update UI instantly.
+			this._onDidChangeTreeData.fire(null)
 		}
 	}
 
