@@ -119,33 +119,36 @@ vscode-build:
 	set -euo pipefail
 	cd "{{VSCODE}}/"
 	npm install
-	vsce package --out "{{VSCODE}}/bin/"
+	npx @vscode/vsce package --out "{{VSCODE}}/bin/"
 
-# Builds and installs the VSCode extension locally
+# Builds the VSCode extension locally without auto-installing it.
 [no-exit-message]
 vscode-install DEBUG="false" ICONS_MODE="local":
 	#!/usr/bin/env bash
 	set -euo pipefail
 	#
-	echo "🚧 [1/5] Building executable..."
+	echo "[1/4] Building executable..."
 	if [[ "{{DEBUG}}" == "true" ]]; then
 		just build
 	else
 		just build --release
 	fi
-	echo "🤖 [2/5] Generating files..."
+	echo "[2/4] Generating files..."
 	just ensure-icons {{ICONS_MODE}} {{DEBUG}} > /dev/null
 	just generate-metadata {{DEBUG}} > /dev/null
-	echo "📦 [3/5] Packing executable..."
+	echo "[3/4] Packing executable..."
 	just vscode-pack "target" {{DEBUG}} > /dev/null
-	echo "🧰 [4/5] Building extension..."
+	echo "[4/4] Building extension..."
 	just vscode-build > /dev/null
-	echo "🚀 [5/5] Installing extension..."
 	#
-	EXTENSION=$(find "{{VSCODE}}/bin/" -name "*.vsix")
-	code --install-extension "$EXTENSION" &> /dev/null
-	#
-	echo "✅ Installed extension successfully!"
+	EXTENSION=$(find "{{VSCODE}}/bin/" -name "*.vsix" | head -n 1)
+	if [[ -z "$EXTENSION" ]]; then
+		echo "No .vsix file found in '{{VSCODE}}/bin/'."
+		exit 1
+	fi
+	echo "Built VSIX at: $EXTENSION"
+	echo "Install manually when needed:"
+	echo "  code --install-extension \"$EXTENSION\" --force"
 
 # Builds and publishes the VSCode extension to the marketplace
 [no-exit-message]
@@ -165,7 +168,7 @@ vscode-publish TARGET_TRIPLE VSCODE_TARGET ICONS_MODE="local":
 	echo "🚀 [5/5] Publishing extension..."
 	#
 	cd "{{VSCODE}}/"
-	vsce publish --target {{VSCODE_TARGET}}
+	npx @vscode/vsce publish --target {{VSCODE_TARGET}}
 	#
 	echo "✅ Published extension successfully!"
 
@@ -233,3 +236,4 @@ unpack-releases RELEASES_DIR:
 	echo ""
 	echo "Releases dir:"
 	ls -lhrt
+

@@ -10,9 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## `0.4.0` - April 21st, 2026
+
 ### Fixed
 
 - Fixed spaces and periods in instance names not being allowed for insert & rename operations.
+- Fixed explorer hierarchy not updating immediately after creating an instance under another instance.
 
 ## `0.3.3` - July 24th, 2024
 
