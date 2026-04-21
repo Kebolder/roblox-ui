@@ -24,18 +24,6 @@ impl IconPackContents {
         Self::default()
     }
 
-    pub fn len_light(&self) -> usize {
-        self.light.len()
-    }
-
-    pub fn len_dark(&self) -> usize {
-        self.dark.len()
-    }
-
-    pub fn len(&self) -> usize {
-        self.len_light() + self.len_dark()
-    }
-
     /**
         Inserts the given icon into the light icon set.
     */

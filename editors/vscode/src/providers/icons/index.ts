@@ -11,45 +11,72 @@ export type { IconPack } from "./types"
 const CUSTOM_ICON_PACK: IconPack = "RobloxCustom"
 
 const getAllIconPacks = (): Array<IconPack> => {
-	return ["None", "Classic", "Vanilla2"]
+	return ["None", "Vanilla3"]
 }
 
-const getBasePath = (extensionPath: string, pack: IconPack): string => {
+const getOutBasePath = (extensionPath: string, pack: IconPack): string => {
 	return path.join(extensionPath, "out", "icons", pack)
 }
 
-const readIconPackMetadatas = (extensionPath: string, pack: IconPack): IconPackMetadatas => {
-	if (pack === "None") {
-		return {
-			light: {
-				classCount: 0,
-				classIcons: {},
-			},
-			dark: {
-				classCount: 0,
-				classIcons: {},
-			},
-		}
-	}
+const getLocalRepoBasePath = (extensionPath: string, pack: IconPack): string => {
+	return path.resolve(extensionPath, "..", "..", "icons", pack)
+}
 
-	const metaPathLight = path.join(getBasePath(extensionPath, pack), "light", "metadata.json")
-	const metaPathDark = path.join(getBasePath(extensionPath, pack), "dark", "metadata.json")
-
-	const metaContentsLight = fs.readFileSync(metaPathLight, "utf-8")
-	const metaContentsDark = fs.readFileSync(metaPathDark, "utf-8")
-
+const getEmptyMetadatas = (): IconPackMetadatas => {
 	return {
-		light: JSON.parse(metaContentsLight),
-		dark: JSON.parse(metaContentsDark),
+		light: {
+			classCount: 0,
+			classIcons: {},
+		},
+		dark: {
+			classCount: 0,
+			classIcons: {},
+		},
 	}
 }
 
-const createIconPackData = (
-	extensionPath: string,
-	pack: IconPack,
-	metas: IconPackMetadatas
-): IconPackData => {
+const tryResolveBasePath = (extensionPath: string, pack: IconPack): string | null => {
+	const candidates = [getOutBasePath(extensionPath, pack), getLocalRepoBasePath(extensionPath, pack)]
+	for (const basePath of candidates) {
+		const metaPathLight = path.join(basePath, "light", "metadata.json")
+		const metaPathDark = path.join(basePath, "dark", "metadata.json")
+		if (fs.existsSync(metaPathLight) && fs.existsSync(metaPathDark)) {
+			return basePath
+		}
+	}
+	return null
+}
+
+const readIconPackMetadatas = (basePath: string | null, pack: IconPack): IconPackMetadatas => {
+	if (pack === "None") {
+		return getEmptyMetadatas()
+	}
+
+	if (!basePath) {
+		return getEmptyMetadatas()
+	}
+
+	const metaPathLight = path.join(basePath, "light", "metadata.json")
+	const metaPathDark = path.join(basePath, "dark", "metadata.json")
+
+	try {
+		const metaContentsLight = fs.readFileSync(metaPathLight, "utf-8")
+		const metaContentsDark = fs.readFileSync(metaPathDark, "utf-8")
+
+		return {
+			light: JSON.parse(metaContentsLight),
+			dark: JSON.parse(metaContentsDark),
+		}
+	} catch {
+		return getEmptyMetadatas()
+	}
+}
+
+const createIconPackData = (basePath: string | null, metas: IconPackMetadatas): IconPackData => {
 	const icons = new Map<string, IconPackIcon>()
+	if (!basePath) {
+		return icons
+	}
 
 	const allClassNames = new Set<string>()
 	for (const className of Object.keys(metas.light.classIcons)) {
@@ -60,16 +87,13 @@ const createIconPackData = (
 	}
 
 	for (const className of allClassNames) {
-		const iconPathLight = path.join(
-			getBasePath(extensionPath, pack),
-			"light",
-			metas.light.classIcons[className]
-		)
-		const iconPathDark = path.join(
-			getBasePath(extensionPath, pack),
-			"dark",
-			metas.dark.classIcons[className]
-		)
+		const relLight = metas.light.classIcons[className]
+		const relDark = metas.dark.classIcons[className]
+		if (!relLight || !relDark) {
+			continue
+		}
+		const iconPathLight = path.join(basePath, "light", relLight)
+		const iconPathDark = path.join(basePath, "dark", relDark)
 		icons.set(className, {
 			light: vscode.Uri.file(iconPathLight),
 			dark: vscode.Uri.file(iconPathDark),
@@ -93,8 +117,9 @@ export class IconsProvider implements vscode.Disposable {
 
 	constructor(public readonly providers: Providers) {
 		for (const pack of getAllIconPacks()) {
-			const metas = readIconPackMetadatas(providers.extensionContext.extensionPath, pack)
-			const icons = createIconPackData(providers.extensionContext.extensionPath, pack, metas)
+			const basePath = tryResolveBasePath(providers.extensionContext.extensionPath, pack)
+			const metas = readIconPackMetadatas(basePath, pack)
+			const icons = createIconPackData(basePath, metas)
 			this.metas.set(pack, metas)
 			this.icons.set(pack, icons)
 		}
@@ -104,7 +129,7 @@ export class IconsProvider implements vscode.Disposable {
 				this.customIconsLoading = true
 				this.customIconsErrored = false
 
-				const outputPath = getBasePath(
+				const outputPath = getOutBasePath(
 					providers.extensionContext.extensionPath,
 					CUSTOM_ICON_PACK
 				)
@@ -119,12 +144,17 @@ export class IconsProvider implements vscode.Disposable {
 				runCommand(providers, commandArgs)
 					.then(() => {
 						const metas = readIconPackMetadatas(
-							providers.extensionContext.extensionPath,
+							tryResolveBasePath(
+								providers.extensionContext.extensionPath,
+								CUSTOM_ICON_PACK
+							),
 							CUSTOM_ICON_PACK
 						)
 						const icons = createIconPackData(
-							providers.extensionContext.extensionPath,
-							CUSTOM_ICON_PACK,
+							tryResolveBasePath(
+								providers.extensionContext.extensionPath,
+								CUSTOM_ICON_PACK
+							),
 							metas
 						)
 						this.metas.set(CUSTOM_ICON_PACK, metas)
@@ -156,9 +186,9 @@ export class IconsProvider implements vscode.Disposable {
 			this.customIconsLoading ||
 			this.customIconsErrored ||
 			!this.providers.settings.get("explorer.customIconDir")
-		const pack = shouldUseNormalIcons
-			? this.providers.settings.get("explorer.iconPack")
-			: CUSTOM_ICON_PACK
+		const configuredPack = this.providers.settings.get("explorer.iconPack")
+		const normalPack = this.icons.has(configuredPack) ? configuredPack : "Vanilla3"
+		const pack = shouldUseNormalIcons ? normalPack : CUSTOM_ICON_PACK
 		const icon = this.icons.get(pack)?.get(className) ?? undefined
 		return icon
 	}

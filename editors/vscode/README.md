@@ -21,14 +21,8 @@ Check out the [features](#features) section for a full list of features.
 -   Explorer view for instances, similar to Roblox Studio
 -   Fuzzy finding / Quick Open dialog - quickly navigate and open files for instances
 -   Support for multi-root workspaces for easy monorepo driven development
--   Included community icon packs such as [Classic] & [Vanilla]
+-   Local Vanilla3 icon pack support
 
 ## Icons and Attribution
 
--   The [Classic] (also known as Silk) icon pack used in the extension was created by famfamfam and is licensed under [CC BY 4.0]
--   The [Vanilla] version 2.1 icon pack used in the extension was created by Elttob and is licensed under [CC BY-NC 4.0]
-
-[Classic]: https://github.com/legacy-icons/famfamfam-silk
-[Vanilla]: https://github.com/Elttob/Vanilla
-[CC BY 4.0]: https://creativecommons.org/licenses/by/4.0/
-[CC BY-NC 4.0]: https://creativecommons.org/licenses/by-nc/4.0/
+-   Vanilla3 icon pack by Studio Elttob.

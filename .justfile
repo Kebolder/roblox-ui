@@ -20,17 +20,47 @@ build *ARGS:
 	set -euo pipefail
 	cargo build --bin {{BIN_NAME}} {{ARGS}}
 
-# Generates all icon packs in an "icons" directory in cwd
+# Legacy command retained for compatibility.
+# Downloaded icon packs are removed; use local Vanilla3 icons instead.
 [no-exit-message]
 generate-icons DEBUG="false":
 	#!/usr/bin/env bash
 	set -euo pipefail
-	mkdir -p {{CWD}}/icons/
-	if [[ "{{DEBUG}}" == "true" ]]; then
-		cargo run -- generate-icons --all --output {{CWD}}/icons/
-	else
-		cargo run --release -- generate-icons --all --output {{CWD}}/icons/
+	echo "generate-icons is no longer supported for built-in pack downloads."
+	echo "Use local icons at '{{CWD}}/icons/Vanilla3/{light,dark}' and run:"
+	echo "  node {{CWD}}/tools/build-icon-metadata.mjs {{CWD}}/icons"
+	exit 1
+
+# Builds metadata.json files from local icon files under each pack's light/dark directories.
+[no-exit-message]
+build-icon-metadata ICONS_DIR="{{CWD}}/icons":
+	#!/usr/bin/env bash
+	set -euo pipefail
+	node {{CWD}}/tools/build-icon-metadata.mjs "{{ICONS_DIR}}"
+
+# Ensures icon packs are present in ./icons.
+# ICONS_MODE="local" validates local files only.
+# ICONS_MODE="download" is intentionally unsupported in Vanilla3-only mode.
+[no-exit-message]
+ensure-icons ICONS_MODE="local" DEBUG="false":
+	#!/usr/bin/env bash
+	set -euo pipefail
+	if [[ "{{ICONS_MODE}}" == "download" ]]; then
+		echo "ICONS_MODE=download is not supported with Vanilla3-only icon packs."
+		echo "Provide local icons under '{{CWD}}/icons/Vanilla3/{light,dark}'."
+		exit 1
 	fi
+	if [ ! -d "{{CWD}}/icons/Vanilla3/light" ] || [ ! -d "{{CWD}}/icons/Vanilla3/dark" ]; then
+		echo "Missing local icon directories under '{{CWD}}/icons'."
+		echo "Run: just ensure-icons download {{DEBUG}}"
+		exit 1
+	fi
+	if [ ! -f "{{CWD}}/icons/Vanilla3/light/metadata.json" ] || [ ! -f "{{CWD}}/icons/Vanilla3/dark/metadata.json" ]; then
+		echo "Missing icon metadata.json files under '{{CWD}}/icons'."
+		echo "Run: just ensure-icons download {{DEBUG}}"
+		exit 1
+	fi
+	echo "Using local icons from '{{CWD}}/icons'."
 
 # Generates reflection and class metadata files in a "data" directory in cwd
 [no-exit-message]
@@ -93,7 +123,7 @@ vscode-build:
 
 # Builds and installs the VSCode extension locally
 [no-exit-message]
-vscode-install DEBUG="false":
+vscode-install DEBUG="false" ICONS_MODE="local":
 	#!/usr/bin/env bash
 	set -euo pipefail
 	#
@@ -104,7 +134,7 @@ vscode-install DEBUG="false":
 		just build --release
 	fi
 	echo "🤖 [2/5] Generating files..."
-	just generate-icons {{DEBUG}} > /dev/null
+	just ensure-icons {{ICONS_MODE}} {{DEBUG}} > /dev/null
 	just generate-metadata {{DEBUG}} > /dev/null
 	echo "📦 [3/5] Packing executable..."
 	just vscode-pack "target" {{DEBUG}} > /dev/null
@@ -119,14 +149,14 @@ vscode-install DEBUG="false":
 
 # Builds and publishes the VSCode extension to the marketplace
 [no-exit-message]
-vscode-publish TARGET_TRIPLE VSCODE_TARGET:
+vscode-publish TARGET_TRIPLE VSCODE_TARGET ICONS_MODE="local":
 	#!/usr/bin/env bash
 	set -euo pipefail
 	#
 	echo "🚧 [1/5] Building executable..."
 	just build --release --target {{TARGET_TRIPLE}}
 	echo "🤖 [2/5] Generating files..."
-	just generate-icons
+	just ensure-icons {{ICONS_MODE}}
 	just generate-metadata
 	echo "📦 [3/5] Packing executable..."
 	just vscode-pack "target/{{TARGET_TRIPLE}}"

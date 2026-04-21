@@ -1,6 +1,5 @@
 use std::{
     io::{Cursor, Read},
-    path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result};
@@ -44,49 +43,3 @@ where
     Ok(Bytes::from(buffer))
 }
 
-/**
-    Extracts all files from the given zip file.
-
-    A filter function may optionally be provided to prevent
-    certain files from being read and included in the result.
-*/
-pub fn extract_files_from_zip<Z, F>(
-    zip_bytes: Z,
-    filter: Option<F>,
-) -> Result<Vec<(PathBuf, Bytes)>>
-where
-    Z: AsRef<[u8]>,
-    F: Fn(&Path) -> bool,
-{
-    let zip_bytes = zip_bytes.as_ref();
-
-    let mut reader = Cursor::new(zip_bytes);
-    let mut contents = Vec::new();
-
-    let mut archive =
-        zip::ZipArchive::new(&mut reader).context("failed to read classic icon pack zip file")?;
-    for i in 0..archive.len() {
-        let mut file = archive
-            .by_index(i)
-            .context("failed to read classic icon pack zip file")?;
-
-        if !file.is_file() {
-            continue;
-        }
-
-        if let Some(path) = file
-            .enclosed_name()
-            .filter(|p| match &filter {
-                Some(f) => f(p),
-                None => true,
-            })
-            .map(|p| p.to_path_buf())
-        {
-            let mut buffer = Vec::new();
-            file.read_to_end(&mut buffer)?;
-            contents.push((path, Bytes::from(buffer)));
-        }
-    }
-
-    Ok(contents)
-}
